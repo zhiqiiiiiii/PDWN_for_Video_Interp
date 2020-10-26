@@ -8,9 +8,7 @@
 * evaluate on videos
 
 ## demos
-<video width="320" height="240" controls>
-  <source src="https://github.com/zhiqiiiiiii/PDWN/blob/master/demos/kimono.mp4" type="video/mp4">
-</video>
+[![demo]()]({https://github.com/zhiqiiiiiii/PDWN/blob/master/demos/kimono.mp4} "demo")
 
 ## Requirements
 * Ubuntu

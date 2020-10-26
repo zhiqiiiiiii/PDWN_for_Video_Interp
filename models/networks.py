@@ -1,12 +1,9 @@
 import os
+import numpy as np
+import functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from torch.autograd import Variable
-from torch import optim
-from torch.autograd import Function, Variable
-import functools
 from torch.nn import init
 
 def init_weights(net, init_type='normal', init_gain=0.02):
@@ -50,34 +47,3 @@ def get_norm_layer(norm_type='batch'):
     else:
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return norm_layer
-
-class single_conv(nn.Module):
-    def __init__(self, in_ch, out_ch, norm_size=1, kernel_size=3, padding=1, stride=1, norm_type='batch'):
-        super(single_conv, self).__init__()
-        norm_layer = get_norm_layer(norm_type)
-        if norm_type == 'layer':
-            norm_size = norm_size
-        else:
-            norm_size = out_ch
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, kernel_size, stride=stride, padding=padding),
-            nn.LeakyReLU(),
-            norm_layer(norm_size)
-        )
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-    
-class single_deconv(nn.Module):
-    def __init__(self, in_ch, out_ch, kernel_size=3, padding=1, stride=1):
-        super(single_deconv, self).__init__()
-        self.conv = nn.Sequential(
-            nn.ConvTranspose2d(in_ch, out_ch, kernel_size, stride=stride, padding=padding),
-            nn.LeakyReLU(),
-            nn.BatchNorm2d(out_ch)
-        )
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x

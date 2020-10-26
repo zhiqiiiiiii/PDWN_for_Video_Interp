@@ -8,16 +8,18 @@ from time import time
 from PIL import Image
 import torch.nn.functional as F
 import random
+from skimage import io
 
 class VideoDataset(Dataset):
 
     def __init__(self, dataset='vimeo', split='train', clip_len=3, 
-                     interpolation=False, crop=True, flip=True, reverse=True, negative=False):
-        self.output_dir = '/beegfs/rw1691/data/VIMEO-7/vimeo_septuplet/sequences/'
+                     interpolation=False, crop=False, flip=True, reverse=True, negative=False):
+        # modify the path
+        self.output_dir = '.../vimeo_triplet/sequences/'
         if split == 'train':
-            list_file = '/beegfs/rw1691/data/VIMEO-7/vimeo_septuplet/tri_trainlist.txt'
+            list_file = '.../vimeo_triplet/tri_trainlist.txt'
         else:
-            list_file = '/beegfs/rw1691/data/VIMEO-7/vimeo_septuplet/sequences/tri_testlist.txt'
+            list_file = '.../vimeo_triplet/tri_testlist.txt'
         
         self.videos = []
         with open(list_file, "r") as f:
@@ -32,7 +34,6 @@ class VideoDataset(Dataset):
         self.reverse = reverse
         self.negative = negative
 
-        # The following three parameters are chosen as described in the paper section 4.1
         self.crop_size = 352
 
         if not self.check_integrity():
@@ -52,39 +53,22 @@ class VideoDataset(Dataset):
         # Loading and preprocessing.
 
         buffer = []
-        frame = cv2.imread(os.path.join(self.output_dir, video, 'im1.png'))
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = io.imread(os.path.join(self.output_dir, video, 'im1.png'))
+#         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame = frame.astype(np.float32)
-        frame = normalize(frame, negative=self.negative)
-        #frame = 2.0*(frame - frame.min()) / (frame.max() - frame.min()) - 1.0
+        frame = self.normalize(frame, negative=self.negative)
         buffer.append(frame)
         
-        frame = cv2.imread(os.path.join(self.output_dir, video, 'im3.png'))
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = io.imread(os.path.join(self.output_dir, video, 'im2.png'))
+#         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame = frame.astype(np.float32)
-        frame = normalize(frame, negative=self.negative)
-        #frame = 2.0*(frame - frame.min()) / (frame.max() - frame.min()) - 1.0
+        frame = self.normalize(frame, negative=self.negative)
         buffer.append(frame)
         
-        frame = cv2.imread(os.path.join(self.output_dir, video, 'im4.png'))
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = io.imread(os.path.join(self.output_dir, video, 'im3.png'))
+#         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame = frame.astype(np.float32)
-        frame = normalize(frame, negative=self.negative)
-        #frame = 2.0*(frame - frame.min()) / (frame.max() - frame.min()) - 1.0
-        buffer.append(frame)
-        
-        frame = cv2.imread(os.path.join(self.output_dir, video, 'im5.png'))
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = frame.astype(np.float32)
-        frame = normalize(frame, negative=self.negative)
-        #frame = 2.0*(frame - frame.min()) / (frame.max() - frame.min()) - 1.0
-        buffer.append(frame)
-
-        frame = cv2.imread(os.path.join(self.output_dir, video, 'im7.png'))
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = frame.astype(np.float32)
-        frame = normalize(frame, negative=self.negative)
-        #frame = 2.0*(frame - frame.min()) / (frame.max() - frame.min()) - 1.0
+        frame = self.normalize(frame, negative=self.negative)
         buffer.append(frame)
         
         if self.crop:
@@ -96,8 +80,8 @@ class VideoDataset(Dataset):
         buffer = np.stack(buffer, axis=0)
         buffer = torch.from_numpy(buffer.transpose((3, 0, 1, 2)))
         return buffer
-
-    def normalize(self, frame, negative=True):
+    
+    def normalize(self, frame, negative=False):
         if negative:
             return 2.0*(frame - frame.min()) / (frame.max() - frame.min()) - 1.0
         else:
@@ -130,30 +114,15 @@ class VideoDataset(Dataset):
         if np.random.random() < 0.5:
             for i, frame in enumerate(buffer):
                 buffer[i] = cv2.flip(frame, flipCode=1)
-
+        if np.random.random() < 0.5:
+            for i, frame in enumerate(buffer):
+                buffer[i] = cv2.flip(frame, flipCode=0)
         return buffer
   
 
     def random_reverse(self, buffer):
         
-        if np.random.random() < 0.3:
+        if np.random.random() < 0.5:
             buffer.reverse()
 
         return buffer
-
-# if __name__ == "__main__":
-#     from torch.utils.data import DataLoader
-#     train_data = VideoDataset(dataset='ucf101', split='test', clip_len=8, preprocess=False)
-#     train_loader = DataLoader(train_data, batch_size=100, shuffle=True, num_workers=0)
-
-#     for i, sample in enumerate(train_loader):
-#         inputs = sample[0]
-#         print(inputs.size())
-
-#         if i == 1:
-#             break
-
-
-
-
-

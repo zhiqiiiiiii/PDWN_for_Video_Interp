@@ -1,7 +1,4 @@
 import torch
-import torchvision
-import torchvision.transforms as transforms
-import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
@@ -13,19 +10,17 @@ class down(nn.Module):
     Average Pooling --> Convlution + Leaky ReLU --> Convolution + Leaky ReLU
     """
 
-
     def __init__(self, inChannels, outChannels, filterSize):
+
         super(down, self).__init__()
-        # Initialize convolutional layers.
         self.conv1 = nn.Conv2d(inChannels,  outChannels, filterSize, stride=1, padding=int((filterSize - 1) / 2))
         self.conv2 = nn.Conv2d(outChannels, outChannels, filterSize, stride=1, padding=int((filterSize - 1) / 2))
            
     def forward(self, x):
+
         # Average pooling with kernel size 2 (2 x 2).
         x = F.avg_pool2d(x, 2)
-        # Convolution + Leaky ReLU
         x = F.leaky_relu(self.conv1(x), negative_slope = 0.1)
-        # Convolution + Leaky ReLU
         x = F.leaky_relu(self.conv2(x), negative_slope = 0.1)
         return x
     
@@ -52,18 +47,15 @@ class up(nn.Module):
 
 class UNet(nn.Module):
 
-    def __init__(self, in_ch, image_size, num_input_frames=4,
-                 num_output_frames=1, interpolation=False, context=False, deep=False):
+    def __init__(self, in_ch, num_input_frames=4, num_output_frames=1, context=False):
         
         super(UNet, self).__init__()
         # Initialize neural network blocks.
-        self.image_size = image_size
         self.in_ch = in_ch
         
         self.offset_channels = 2*2
         self.weight_channels = 2
-        self.residual = context
-        self.deep = deep
+        self.context = context
 
         self.ex1 = nn.Sequential(
                     nn.Conv2d(self.in_ch, 16, kernel_size=7, stride=1, padding=3),
@@ -105,11 +97,11 @@ class UNet(nn.Module):
                 nn.Conv2d(16, 2, kernel_size=3, stride=1, padding=1),
                 nn.Softmax(dim=1))
         
-        if self.residual:
+        if self.context:
             self.enhance = ResBlock.__dict__['MultipleBasicBlock_4'](3 + 3 + 16*2, 64)
     
     
-    def forward(self, input_frames, num_input_frames=2, num_output_frames=1, use_cuda=False, interpolation=False):
+    def forward(self, input_frames, num_input_frames=2, num_output_frames=1, use_cuda=False):
         b, c, t, h, w = input_frames.shape
         I0 = input_frames[:,:, 0, :, :]
         I1 = input_frames[:,:, 1, :, :]
@@ -203,13 +195,9 @@ class UNet(nn.Module):
         weights = weights.repeat(1, 1, c, 1, 1)
         x = weights[:,0,:, :,:]*I1_warped + weights[:,1,:,:,:]*I2_warped
         
-        if self.deep:
-            inter = x.clone()
-        if self.residual:
+        if self.context:
             x = x + self.enhance(torch.cat([I1_warped, I2_warped, feat0_1_warped, feat0_2_warped], dim=1)) 
         
-        if self.deep:
-            return x, inter, offset, weights, None, None
         return x, offset, weights, None, None    
     
     def _resample(self, offset, frame, interpolation=False):

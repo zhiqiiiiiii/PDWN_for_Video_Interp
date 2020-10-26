@@ -51,7 +51,7 @@ class BasicBlock(nn.Module):
 class MultipleBasicBlock(nn.Module):
 
     def __init__(self,input_feature,
-                 block, num_blocks,
+                 block, num_blocks, out_ch = 3,
                  intermediate_feature = 64, dense = True):
         super(MultipleBasicBlock, self).__init__()
         self.dense = dense
@@ -68,7 +68,7 @@ class MultipleBasicBlock(nn.Module):
         self.block2 = block(intermediate_feature, intermediate_feature, dilation = 1) if num_blocks>=2 else None
         self.block3 = block(intermediate_feature, intermediate_feature, dilation = 1) if num_blocks>=3 else None
         self.block4 = block(intermediate_feature, intermediate_feature, dilation = 1) if num_blocks>=4 else None
-        self.block5 = nn.Sequential(*[nn.Conv2d(intermediate_feature, 3 , (3, 3), 1, (1, 1))])
+        self.block5 = nn.Sequential(*[nn.Conv2d(intermediate_feature, out_ch , (3, 3), 1, (1, 1))])
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -86,9 +86,9 @@ class MultipleBasicBlock(nn.Module):
         x = self.block5(x)
         return x
 
-def MultipleBasicBlock_4(input_feature,intermediate_feature = 64):
+def MultipleBasicBlock_4(input_feature,intermediate_feature = 64, out_ch = 3):
     model = MultipleBasicBlock(input_feature,
-                               BasicBlock,4 ,
+                               BasicBlock,4 , out_ch,
                                intermediate_feature)
     return model
 

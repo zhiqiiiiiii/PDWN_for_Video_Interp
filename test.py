@@ -1,14 +1,12 @@
 import os
-import torch
+import sys
+import cv2
 import numpy as np
 from time import time
+import torch
 from torch.utils.data.dataset import Dataset
 import torchvision
-import sys
-import os
 from skimage.measure import compare_ssim, compare_mse, compare_psnr
-import random
-#from util.vis_offset import flow_to_image
 from PIL import Image
 import torch.nn.functional as F
 
@@ -25,29 +23,31 @@ def torch2im(tensor_gpu, path):
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='vimeo_tri', help='vimeo_tri|vimeo_sev|UCF')
-parser.add_argument('--image_size', nargs='+', type=int, default=(64,64))
+parser.add_argument('--dataset', type=str, default='vimeo_tri', help='vimeo_tri|vimeo_sev|DVF')
 parser.add_argument('--num_input_frames', type=int, default=2)
 parser.add_argument('--num_output_frames', type=int, default=1)
 parser.add_argument('--batch_size', type=int, default=1)
 parser.add_argument('--use_cuda', type=bool, default=True)
 parser.add_argument('--name', type=str, default='experiment')
-parser.add_argument('--model', type=str, default='refine', help='refine|refine_4')
-parser.add_argument('--checkpoint_path', type=str, default='/scratch/zc1337/deform_dfn/checkpoints')
-parser.add_argument('--result_path', type=str, default='/scratch/zc1337/deform_dfn/results')
+parser.add_argument('--model', type=str, default='refine', help='deform_dfn|dfn')
+parser.add_argument('--kernel', type=int, default=1, help='deformable convolution kernel size')
+parser.add_argument('--groups', type=int, default=1, help='deformable convolution groups')
+parser.add_argument('--checkpoint_path', type=str, default='./checkpoints')
+parser.add_argument('--result_path', type=str, default='./results')
 parser.add_argument('--model_load', type=str, default='latest', help='saved model to continue train')
 parser.add_argument('--save_img', type=bool, default=False, help='whether to save images')
 parser.add_argument('--save_freq', type=int, default=10, help='frequency to save images')
 parser.add_argument('--visualize_offset', type=bool, default=False, help='whether to visualize offset')
 parser.add_argument('--interpolation', type=bool, default=True)
+parser.add_argument('--beyondMSE', type=bool, default=False)
 parser.add_argument('--DVF', type=bool, default=False)
 parser.add_argument('--deep', type=bool, default=False)
 parser.add_argument('--context', type=bool, default=False)
 parser.add_argument('--resize', type=bool, default=False)
+parser.add_argument('--image_size', nargs='+', type=int, default=(64, 64), help="h,w")
 param = parser.parse_args()
 
 device = torch.device('cpu')
-
 # save checkpoints
 mkdir(param.result_path)
 check_dir = os.path.join(param.checkpoint_path, param.name)
@@ -69,18 +69,18 @@ with open(log_name, "a") as log_file:
     log_file.write('%s\n' % message)
 
     
-if param.dataset == 'UCF':
-    from data.UCF_dataset_test import VideoDataset
-    dataset = VideoDataset(num_input_frames=2, num_output_frames=1, 
-                               interpolation=param.interpolation, DVF=True)
-    in_ch = 3
-elif param.dataset == 'vimeo_tri': 
+if param.dataset == 'vimeo_tri': 
     from data.Vimeo_dataset_tri import VideoDataset
     dataset = VideoDataset(split='test', interpolation=param.interpolation, crop=False, flip=False, reverse=False)
     in_ch = 3
 elif param.dataset == 'vimeo_sev':
     from data.Vimeo_dataset_7 import VideoDataset
     dataset = VideoDataset(split='test', interpolation=param.interpolation, crop=False, flip=False, reverse=False, negative=False)
+    in_ch = 3
+elif param.dataset == 'DVF':
+    from data.UCF_dataset_test import VideoDataset
+    dataset = VideoDataset(num_input_frames=2, num_output_frames=1, 
+                               interpolation=param.interpolation, DVF=True)
     in_ch = 3
 else:
     print('Please use the correct dataset name')
@@ -90,15 +90,15 @@ print("dataset loaded")
 
 
 if param.num_input_frames == 2:
-    from models.refine import UNet
-    net = UNet(in_ch, image_size=param.image_size, 
-             num_input_frames=param.num_input_frames, 
-             interpolation=param.interpolation, context=param.context)
+    if param.model == 'deform':
+        from models.refine_deform import UNet
+        net = UNet(in_ch, context=param.context, kernel=param.kernel, groups=param.groups)
+    else:
+        from models.refine import UNet
+        net = UNet(in_ch, deep=param.deep, residual=param.context)
 else:
-    from models.refine_4 import UNet
-    net = UNet(in_ch, image_size=param.image_size, 
-                 num_input_frames=param.num_input_frames, 
-                 interpolation=param.interpolation, context=param.context)
+    from models.refine_deform_4 import UNet
+    net = UNet(in_ch, context=param.context, kernel=param.kernel, groups=param.groups)
     
 if param.use_cuda and torch.cuda.is_available():
     print("using cuda")
@@ -113,6 +113,7 @@ load_path = os.path.join(check_dir, load_path)
 state_dict = torch.load(load_path, map_location=device)
 model_dict = net.state_dict()
 state_dict = {k: v for k, v in state_dict.items() if k in model_dict}
+print(load_path)
 net.load_state_dict(state_dict)
 print("model loaded")
 
@@ -130,39 +131,30 @@ with torch.no_grad():
             if param.dataset == 'vimeo_tri':
                 input_frames = torch.cat([data[:,:,0:1,:,:].clone(), 
                                               data[:,:,2:3,:,:].clone()], dim=2)
-                gt = data[:,:,1,:,:].clone()
-            elif param.dataset == 'UCF':
-                input_frames = data[:,:,0:2,:,:].clone()
-                gt = data[:,:,2,:,:].clone()
+                input_frames = input_frames.cuda()
+                gt = data[:,:,1,:,:].clone().cuda()
+            elif param.dataset == 'DVF':
+                input_frames = data[:,:,0:2,:,:].clone().cuda()
+                gt = data[:,:,2,:,:].clone().cuda()
             elif param.dataset == 'vimeo_sev':
                 input_frames = torch.cat([data[:,:,1:2,:,:].clone(), 
                                               data[:,:,3:4,:,:].clone()], dim=2)
-                gt = data[:,:,2,:,:].clone()
+                input_frames = input_frames.cuda()
+                gt = data[:,:,2,:,:].clone().cuda()
         else:
             input_frames = torch.cat([data[:,:,0:2,:,:].clone(), 
                                       data[:,:,3:5,:,:].clone()], dim=2)
-            gt = data[:,:,2,:,:].clone()
-
-        if param.use_cuda and torch.cuda.is_available():
             input_frames = input_frames.cuda()
-            gt = gt.cuda()
+            gt = data[:,:,2,:,:].clone().cuda()
+            
 
-        
-        predictions, offset, weights, _,_ = net(input_frames, 
-                           num_input_frames=param.num_input_frames,
-                           num_output_frames=param.num_output_frames,
-                           use_cuda=param.use_cuda, 
-                           interpolation=param.interpolation)
+        predictions, offset, weights, res,_ = net(input_frames, use_cuda=param.use_cuda)
             
             
-        img_pred = predictions[0,:,:,:]
-#         img_pred = ((img_pred.detach().cpu().numpy() + 1.0) / 2.0 * 255.0
-         
+        img_pred = predictions[0,:,:,:]         
         img_pred = np.clip(img_pred.detach().cpu().numpy() * 255.0, 0.0, 255.0)
         img_true = gt[0,:,:,:]
-#         img_true = ((img_true.detach().cpu().numpy() + 1.0) / 2.0 * 255.0)
         img_true = np.clip(img_true.detach().cpu().numpy() * 255.0, 0.0, 255.0)
-
 
         img_pred = np.transpose(img_pred, (1,2,0))
         img_true = np.transpose(img_true, (1,2,0))
@@ -173,7 +165,6 @@ with torch.no_grad():
             ssim = compare_ssim(img_pred.astype(np.uint8), img_true.astype(np.uint8), multichannel=True)
         else:
             ssim = compare_ssim(img_pred.astype(np.uint8), img_true.astype(np.uint8))
-        
         message = 'Sample %s, predicting 0 frame, mse: %.3f, psnr: %.3f, ssim: %.3f' % (i, mse, psnr, ssim)
         print(message)
         with open(log_name, "a") as log_file:
@@ -193,51 +184,72 @@ with torch.no_grad():
                 img_filename = ('%s_true.png' % (i))
                 path = os.path.join(save_dir, img_filename)
                 img_true.save(path) 
+                
+                if param.visualize_offset:
+                    if res != None:
+                        res = (res[0,...] - res.min())/(res.max()-res.min())
+                        res = np.clip((abs(res.detach().cpu().numpy()) + 1)/2* 255.0, 0.0, 255.0)
+                        res = res.astype(np.uint8)
+                        res = np.transpose(res, (1,2,0))
+                        res = unloader(res)
+                        res.save(os.path.join(save_dir, ('%s_res.png' % (i))))
+                    
+                    w_frames = weights[0,0,0,...].detach().cpu().numpy()*255
+                    weight_map = unloader(w_frames.astype(np.uint8))
+                    path = os.path.join(save_dir, ('%s_weight.png' % (i)))
+                    weight_map.save(path)
+                               
+                    offset_h = [-1, -1, -1, 0, 0, 0, 1, 1, 1]
+                    offset_w = [-1, 0, 1, -1, 0, 1, -1, 0, 1]
+                    """A Deformable Conv Encapsulation that acts as normal Conv layers.
+                    The offset tensor is like `[y0, x0, y1, x1, y2, x2, ..., y8, x8]`.
+                    The spatial arrangement is like:
+                    .. code:: text
+                        (x0, y0) (x1, y1) (x2, y2)
+                        (x3, y3) (x4, y4) (x5, y5)
+                        (x6, y6) (x7, y7) (x8, y8)
+                        """
+                    offset_0= offset[0,:2*param.kernel**2, ...].detach().cpu().numpy()
+                    offset_1= offset[0,2*param.kernel**2:, ...].detach().cpu().numpy()
+                    _,_,H,W = offset.shape
+                    
+                    img0 = input_frames[0,:,0,:,:].detach().cpu().numpy() * 255.0
+                    img1 = input_frames[0,:,1,:,:].detach().cpu().numpy() * 255.0
+                    img0 = np.transpose(img0, (1,2,0))
+                    img1 = np.transpose(img1, (1,2,0))
+                    img0 = unloader(img0.astype(np.uint8))
+                    img1 = unloader(img1.astype(np.uint8))
 
+                    sample0 = Image.new(img_pred.mode, (W*2, H))
+                    sample0.paste(img0, box=(0, 0))
+                    sample0.paste(img_pred, box=(W, 0))
+                    sample0 = np.array(sample0)
+                    
+                    sample1 = Image.new(img_pred.mode, (W*2, H))
+                    sample1.paste(img_pred, box=(0, 0))
+                    sample1.paste(img1, box=(W, 0))
+                    sample1 = np.array(sample1)
+                    
+                    # print(W,H)
+                    for t in range(40000, H*W-4000, 11111):
+                        h = t//W
+                        w = t//H
+                        # print(w, h)
+                        for pt in range(param.kernel**2):
+                            lines0_begin = (W+w, h)
+                            lines0_end = (np.clip(int(w+offset_w[pt]+offset_0[2*pt, h, w]), 0, W),
+                                          np.clip(int(h+offset_h[pt]+offset_0[2*pt+1, h, w]), 0, H))
 
-        if param.save_img:
-            if i % param.save_freq == 0:
-                if not param.interpolation:
-                    for k in range(param.num_input_frames):
-                        img = data[k][0,:,:,:]
-                        img = img.detach().cpu().numpy()
-                        img = np.transpose(img, (1,2,0))
-                        img = Image.fromarray((img*255.0).astype(np.uint8))
-                        img_filename = ('%s_input_frame_%s.png' % (i, k))
-                        path = os.path.join(save_dir, img_filename)
-                        img.save(path)
-                else:
-                    for k in range(param.num_input_frames):
-                        img = input_frames[0,:,k,:,:]
-                        torch2im(img, os.path.join(save_dir, ('%s_input_frame_%s.png' % (i, k))))
-                        
-                from util.util import flow_to_color
-                weights = weights.cpu().detach().numpy()
-                h = offset.shape[2]
-                w = offset.shape[3]
-                w_frames = abs(weights[0,0,...] - weights[0,1,...])*255.0
-                weight_map = unloader(w_frames.astype(np.uint8))
-                path = os.path.join(save_dir, ('%s_weight.png' % (i)))
-                weight_map.save(path)
-                offset = offset.cpu().detach().numpy()
-                xy = offset[0,...]
-                f, h, w = xy.shape
-                xy[0,...] = xy[0,...]/w
-                xy[1,...] = xy[1,...]/h
-                xy[2,...] = xy[2,...]/w
-                xy[3,...] = xy[3,...]/h
-
-                flow_map = flow_to_color(np.transpose(xy[[0,1],...],(1,2,0)))
-                flow_map = unloader(flow_map.astype(np.uint8))
-                img_filename = ('%s_flow_0_%s.png' % (i, 0))
-                path = os.path.join(save_dir, img_filename)
-                flow_map.save(path)
-
-                flow_map = flow_to_color(np.transpose(xy[[2,3],...],(1,2,0)))
-                flow_map = unloader(flow_map.astype(np.uint8))
-                img_filename = ('%s_flow_1_%s.png' % (i, 1))
-                path = os.path.join(save_dir, img_filename)
-                flow_map.save(path)
+                            lines1_begin = (w, h)
+                            lines1_end = (W+np.clip(int(w+offset_w[pt]+offset_1[2*pt, h, w]), 0, W),
+                                         np.clip(int(h+offset_h[pt]+offset_1[2*pt+1, h, w]), 0, H))
+                            cv2.line(sample0,lines0_begin,lines0_end,(255,0,0))           
+                            cv2.line(sample1,lines1_begin,lines1_end,(255,0,0)) 
+                    
+                    sample0 = unloader(sample0.astype(np.uint8))
+                    sample0.save(os.path.join(save_dir, ('%s_sampling_0.png' % (i))))
+                    sample1 = unloader(sample1.astype(np.uint8))
+                    sample1.save(os.path.join(save_dir, ('%s_sampling_1.png' % (i))))
 
 
 for j in range(param.num_output_frames):

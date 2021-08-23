@@ -25,13 +25,13 @@ Vimeo-triplet can be downloaded from http://data.csail.mit.edu/tofu/dataset/vime
 ## Train
 To train your own model, please use the following command:
 ```python
-python train.py --name experiment --dataroot [YOU PATH TO THE DATASET] --dataset vimeo_tri  --model deform --kernel 3 --loss L1 --batch_size 32 --use_cuda True
+python train.py --name experiment --dataroot [PATH TO THE DATASET] --dataset vimeo_tri  --model deform --kernel 3 --loss L1 --batch_size 32 --use_cuda True
 ```
 
 ## Test
 To replicate the results presented in the paper, please use the following command (Model is saved under ./checkpoints/vimeo_plus_single_no_norm_crop)
 ```python
-python test.py --name vimeo_plus_single_no_norm_crop --dataroot [YOU PATH TO THE DATASET] --ensemble True --kernel 3 --model_load latest --result_path ./results --checkpoint_path ./checkpoints --dataset vimeo_tri
+python test.py --name vimeo_plus_single_no_norm_crop --dataroot [PATH TO THE DATASET] --ensemble True --kernel 3 --model_load latest --result_path ./results --checkpoint_path ./checkpoints --dataset vimeo_tri
 ```
 
 ## Evaluate on videos

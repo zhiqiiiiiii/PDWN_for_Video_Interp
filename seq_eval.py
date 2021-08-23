@@ -33,7 +33,6 @@ parser.add_argument('--groups', type=int, default=1, help='frequency to save res
 parser.add_argument('--checkpoint_path', type=str, default='./checkpoints')
 parser.add_argument('--result_path', type=str, default='./results')
 parser.add_argument('--model_load', type=str, default='latest', help='saved model to continue train')
-parser.add_argument('--interpolation', type=bool, default=True)
 parser.add_argument('--context', type=bool, default=False)
 parser.add_argument('--video_path', type=str, required=True)
 parser.add_argument('--t_interp', type=int, default=4, help='times of interpolating')
@@ -44,16 +43,8 @@ param = parser.parse_args()
 check_dir = os.path.join(param.checkpoint_path, param.name)
 mkdir('./demo')
 
-if param.num_input_frames == 2:
-    if param.model == 'deform':
-        from models.refine_deform import UNet
-        net = UNet(3, context=param.context, kernel=param.kernel, groups=param.groups)
-    else:
-        from models.refine import UNet
-        net = UNet(in_ch, context=param.context)
-else:
-    from models.refine_deform_4 import UNet
-    net = UNet(in_ch, context=param.context, kernel=param.kernel, groups=param.groups)
+from models.unet_deformv2_plus import UNet
+net = UNet(in_ch, context=param.context, kernel=param.kernel, groups=param.groups)
 net = net.cuda()
 para = sum(p.numel() for p in net.parameters())
 print('Model {} : params: {:1f}M'.format(net._get_name(), para))

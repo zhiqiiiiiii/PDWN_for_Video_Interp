@@ -44,7 +44,7 @@ check_dir = os.path.join(param.checkpoint_path, param.name)
 mkdir('./demo')
 
 from models.unet_deformv2_plus import UNet
-net = UNet(in_ch, context=param.context, kernel=param.kernel, groups=param.groups)
+net = UNet(3, context=param.context, kernel=param.kernel, groups=param.groups)
 net = net.cuda()
 para = sum(p.numel() for p in net.parameters())
 print('Model {} : params: {:1f}M'.format(net._get_name(), para))

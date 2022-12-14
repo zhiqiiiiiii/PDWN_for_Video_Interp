@@ -1,6 +1,6 @@
 # PDWN: Pyramid Deformable Warping Network for Video Interpolation
 
-Code for PDWN: Pyramid Deformable Warping Network for Video Interpolation (https://ieeexplore.ieee.org/document/9416770)
+Code for our IEEE Open Journal of Signal Processing paper: "PDWN: Pyramid Deformable Warping Network for Video Interpolation (https://ieeexplore.ieee.org/document/9416770)"
 
 ## Table of Contents
 * demos
